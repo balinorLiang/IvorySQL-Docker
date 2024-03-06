@@ -69,7 +69,7 @@ FROM redhat/ubi8:latest
 
 COPY --from=builder /var/local/ivorysql /var/local/ivorysql/
 
-RUN useradd -u 998 ivorysql
+RUN useradd -u 1000 ivorysql
 
 RUN dnf install -y \
     lz4 lz4-devel lz4-libs krb5-devel libxslt-devel libicu-devel && dnf -y clean all 
