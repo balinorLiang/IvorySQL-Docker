@@ -61,9 +61,9 @@ docker_create_db_directories() {
 }
 
 # initialize empty PGDATA directory with new database via 'initdb'
-# arguments to `initdb` can be passed via POSTGRES_INITDB_ARGS or as arguments to this function
+# arguments to `initdb` can be passed via IVORYSQL_INITDB_ARGS or as arguments to this function
 # `initdb` automatically creates the "postgres", "template0", and "template1" dbnames
-# this is also where the database user is created, specified by `POSTGRES_USER` env
+# this is also where the database user is created, specified by `IVORYSQL_USER` env
 docker_init_database_dir() {
 	# "initdb" is particular about the current user existing in "/etc/passwd", so we use "nss_wrapper" to fake that if necessary
 	# see https://github.com/docker-library/postgres/pull/253, https://github.com/docker-library/postgres/issues/359, https://cwrap.org/nss_wrapper.html
@@ -89,7 +89,7 @@ docker_init_database_dir() {
 	fi
 
 	# --pwfile refuses to handle a properly-empty file (hence the "\n"): https://github.com/docker-library/postgres/issues/1025
-	eval 'initdb --username="$POSTGRES_USER" --pwfile=<(printf "%s\n" "$POSTGRES_PASSWORD") '"$POSTGRES_INITDB_ARGS"' "$@"'
+	eval '/var/local/ivorysql/ivorysql-3/bin/initdb --username="$IVORYSQL_USER" --pwfile=<(printf "%s\n" "$IVORYSQL_PASSWORD") '"$IVORYSQL_INITDB_ARGS"' "$@"'
 
 	# unset/cleanup "nss_wrapper" bits
 	if [[ "${LD_PRELOAD:-}" == */libnss_wrapper.so ]]; then
@@ -98,8 +98,8 @@ docker_init_database_dir() {
 	fi
 }
 
-# print large warning if POSTGRES_PASSWORD is long
-# error if both POSTGRES_PASSWORD is empty and POSTGRES_HOST_AUTH_METHOD is not 'trust'
+# print large warning if IVORYSQL_PASSWORD is long
+# error if both IVORYSQL_PASSWORD is empty and POSTGRES_HOST_AUTH_METHOD is not 'trust'
 # print large warning if POSTGRES_HOST_AUTH_METHOD is set to 'trust'
 # assumes database is not set up, ie: [ -z "$DATABASE_ALREADY_EXISTS" ]
 docker_verify_minimum_env() {
@@ -107,10 +107,10 @@ docker_verify_minimum_env() {
 		12 | 13) # https://github.com/postgres/postgres/commit/67a472d71c98c3d2fa322a1b4013080b20720b98
 			# check password first so we can output the warning before postgres
 			# messes it up
-			if [ "${#POSTGRES_PASSWORD}" -ge 100 ]; then
+			if [ "${#IVORYSQL_PASSWORD}" -ge 100 ]; then
 				cat >&2 <<-'EOWARN'
 
-					WARNING: The supplied POSTGRES_PASSWORD is 100+ characters.
+					WARNING: The supplied IVORYSQL_PASSWORD is 100+ characters.
 
 					  This will not work if used via PGPASSWORD with "psql".
 
@@ -121,12 +121,12 @@ docker_verify_minimum_env() {
 			fi
 			;;
 	esac
-	if [ -z "$POSTGRES_PASSWORD" ] && [ 'trust' != "$POSTGRES_HOST_AUTH_METHOD" ]; then
+	if [ -z "$IVORYSQL_PASSWORD" ] && [ 'trust' != "$POSTGRES_HOST_AUTH_METHOD" ]; then
 		# The - option suppresses leading tabs but *not* spaces. :)
 		cat >&2 <<-'EOE'
 			Error: Database is uninitialized and superuser password is not specified.
-			       You must specify POSTGRES_PASSWORD to a non-empty value for the
-			       superuser. For example, "-e POSTGRES_PASSWORD=password" on "docker run".
+			       You must specify IVORYSQL_PASSWORD to a non-empty value for the
+			       superuser. For example, "-e IVORYSQL_PASSWORD=password" on "docker run".
 
 			       You may also use "POSTGRES_HOST_AUTH_METHOD=trust" to allow all
 			       connections without a password. This is *not* recommended.
@@ -141,14 +141,14 @@ docker_verify_minimum_env() {
 			********************************************************************************
 			WARNING: POSTGRES_HOST_AUTH_METHOD has been set to "trust". This will allow
 			         anyone with access to the Postgres port to access your database without
-			         a password, even if POSTGRES_PASSWORD is set. See PostgreSQL
+			         a password, even if IVORYSQL_PASSWORD is set. See PostgreSQL
 			         documentation about "trust":
 			         https://www.postgresql.org/docs/current/auth-trust.html
 			         In Docker's default configuration, this is effectively any other
 			         container on the same system.
 
 			         It is not recommended to use POSTGRES_HOST_AUTH_METHOD=trust. Replace
-			         it with "-e POSTGRES_PASSWORD=password" instead to set a password in
+			         it with "-e IVORYSQL_PASSWORD=password" instead to set a password in
 			         "docker run".
 			********************************************************************************
 		EOWARN
@@ -193,25 +193,25 @@ docker_process_init_files() {
 #    ie: docker_process_sql -f my-file.sql
 #    ie: docker_process_sql <my-file.sql
 docker_process_sql() {
-	local query_runner=( psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --no-password --no-psqlrc )
-	if [ -n "$POSTGRES_DB" ]; then
-		query_runner+=( --dbname "$POSTGRES_DB" )
+	local query_runner=( /var/local/ivorysql/ivorysql-3/bin/psql -v ON_ERROR_STOP=1 --username "$IVORYSQL_USER" -p 5866 --no-password --no-psqlrc )
+	if [ -n "$IVORYSQL_DB" ]; then
+		query_runner+=( --dbname "$IVORYSQL_DB" )
 	fi
 
 	PGHOST= PGHOSTADDR= "${query_runner[@]}" "$@"
 }
 
 # create initial database
-# uses environment variables for input: POSTGRES_DB
+# uses environment variables for input: IVORYSQL_DB
 docker_setup_db() {
 	local dbAlreadyExists
 	dbAlreadyExists="$(
-		POSTGRES_DB= docker_process_sql --dbname postgres --set db="$POSTGRES_DB" --tuples-only <<-'EOSQL'
+		IVORYSQL_DB= docker_process_sql --dbname postgres --set db="$IVORYSQL_DB" --tuples-only <<-'EOSQL'
 			SELECT 1 FROM pg_database WHERE datname = :'db' ;
 		EOSQL
 	)"
 	if [ -z "$dbAlreadyExists" ]; then
-		POSTGRES_DB= docker_process_sql --dbname postgres --set db="$POSTGRES_DB" <<-'EOSQL'
+		IVORYSQL_DB= docker_process_sql --dbname postgres --set db="$IVORYSQL_DB" <<-'EOSQL'
 			CREATE DATABASE :"db" ;
 		EOSQL
 		printf '\n'
@@ -221,10 +221,10 @@ docker_setup_db() {
 # Loads various settings that are used elsewhere in the script
 # This should be called before any other functions
 docker_setup_env() {
-	file_env 'POSTGRES_PASSWORD'
+	file_env 'IVORYSQL_PASSWORD'
 
-	file_env 'POSTGRES_USER' 'postgres'
-	file_env 'POSTGRES_DB' "$POSTGRES_USER"
+	file_env 'IVORYSQL_USER' 'ivorysql'
+	file_env 'IVORYSQL_DB' "$IVORYSQL_USER"
 	file_env 'POSTGRES_INITDB_ARGS'
 	: "${POSTGRES_HOST_AUTH_METHOD:=}"
 
@@ -246,7 +246,7 @@ pg_setup_hba_conf() {
 	fi
 	local auth
 	# check the default/configured encryption and use that as the auth method
-	auth="$(postgres -C password_encryption "$@")"
+	auth="$(/var/local/ivorysql/ivorysql-3/bin/postgres -C password_encryption "$@")"
 	: "${POSTGRES_HOST_AUTH_METHOD:=$auth}"
 	{
 		printf '\n'
@@ -267,10 +267,10 @@ docker_temp_server_start() {
 
 	# internal start of server in order to allow setup using psql client
 	# does not listen on external TCP/IP and waits until start finishes
-	set -- "$@" -c listen_addresses='' -p "${PGPORT:-5432}"
+	set -- "$@" -c listen_addresses='' -p "${PGPORT:-5866}"
 
-	PGUSER="${PGUSER:-$POSTGRES_USER}" \
-	pg_ctl -D "$PGDATA" \
+	PGUSER="${PGUSER:-$IVORYSQL_USER}" \
+	/var/local/ivorysql/ivorysql-3/bin/pg_ctl -D "$PGDATA" \
 		-o "$(printf '%q ' "$@")" \
 		-w start
 }
@@ -278,7 +278,7 @@ docker_temp_server_start() {
 # stop postgresql server after done setting up user and running scripts
 docker_temp_server_stop() {
 	PGUSER="${PGUSER:-postgres}" \
-	pg_ctl -D "$PGDATA" -m fast -w stop
+	/var/local/ivorysql/ivorysql-3/bin/pg_ctl -D "$PGDATA" -m fast -w stop
 }
 
 # check arguments for an option that would cause postgres to stop
@@ -324,8 +324,8 @@ _main() {
 			pg_setup_hba_conf "$@"
 
 			# PGPASSWORD is required for psql when authentication is required for 'local' connections via pg_hba.conf and is otherwise harmless
-			# e.g. when '--auth=md5' or '--auth-local=md5' is used in POSTGRES_INITDB_ARGS
-			export PGPASSWORD="${PGPASSWORD:-$POSTGRES_PASSWORD}"
+			# e.g. when '--auth=md5' or '--auth-local=md5' is used in IVORYSQL_INITDB_ARGS
+			export PGPASSWORD="${PGPASSWORD:-$IVORYSQL_PASSWORD}"
 			docker_temp_server_start "$@"
 
 			docker_setup_db
@@ -347,8 +347,8 @@ _main() {
 			EOM
 		fi
 	fi
-
-	exec "$@"
+	sed -ri "s!^#?(listen_addresses)\s*=\s*\S+.*!\1 = '*'!" /var/local/ivorysql/ivorysql-3/data/postgresql.conf
+	exec "/var/local/ivorysql/ivorysql-3/bin/$@"
 }
 
 if ! _is_sourced; then
