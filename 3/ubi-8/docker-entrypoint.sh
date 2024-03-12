@@ -89,7 +89,7 @@ docker_init_database_dir() {
 	fi
 
 	# --pwfile refuses to handle a properly-empty file (hence the "\n"): https://github.com/docker-library/postgres/issues/1025
-	eval '/var/local/ivorysql/ivorysql-3/bin/initdb --username="$IVORYSQL_USER" --pwfile=<(printf "%s\n" "$IVORYSQL_PASSWORD") '"$IVORYSQL_INITDB_ARGS"' "$@"'
+	eval 'initdb --username="$IVORYSQL_USER" --pwfile=<(printf "%s\n" "$IVORYSQL_PASSWORD") '"$IVORYSQL_INITDB_ARGS"' "$@"'
 
 	# unset/cleanup "nss_wrapper" bits
 	if [[ "${LD_PRELOAD:-}" == */libnss_wrapper.so ]]; then
@@ -103,7 +103,7 @@ docker_init_database_dir() {
 # print large warning if POSTGRES_HOST_AUTH_METHOD is set to 'trust'
 # assumes database is not set up, ie: [ -z "$DATABASE_ALREADY_EXISTS" ]
 docker_verify_minimum_env() {
-	case "${PG_MAJOR:-}" in
+	case "${IVORY_MAJOR:-}" in
 		12 | 13) # https://github.com/postgres/postgres/commit/67a472d71c98c3d2fa322a1b4013080b20720b98
 			# check password first so we can output the warning before postgres
 			# messes it up
@@ -193,7 +193,7 @@ docker_process_init_files() {
 #    ie: docker_process_sql -f my-file.sql
 #    ie: docker_process_sql <my-file.sql
 docker_process_sql() {
-	local query_runner=( /var/local/ivorysql/ivorysql-3/bin/psql -v ON_ERROR_STOP=1 --username "$IVORYSQL_USER" -p 5866 --no-password --no-psqlrc )
+	local query_runner=( psql -v ON_ERROR_STOP=1 --username "$IVORYSQL_USER" -p 5866 --no-password --no-psqlrc )
 	if [ -n "$IVORYSQL_DB" ]; then
 		query_runner+=( --dbname "$IVORYSQL_DB" )
 	fi
@@ -246,7 +246,7 @@ pg_setup_hba_conf() {
 	fi
 	local auth
 	# check the default/configured encryption and use that as the auth method
-	auth="$(/var/local/ivorysql/ivorysql-3/bin/postgres -C password_encryption "$@")"
+	auth="$(postgres -C password_encryption "$@")"
 	: "${POSTGRES_HOST_AUTH_METHOD:=$auth}"
 	{
 		printf '\n'
@@ -270,7 +270,7 @@ docker_temp_server_start() {
 	set -- "$@" -c listen_addresses='' -p "${PGPORT:-5866}"
 
 	PGUSER="${PGUSER:-$IVORYSQL_USER}" \
-	/var/local/ivorysql/ivorysql-3/bin/pg_ctl -D "$PGDATA" \
+	pg_ctl -D "$PGDATA" \
 		-o "$(printf '%q ' "$@")" \
 		-w start
 }
@@ -278,7 +278,7 @@ docker_temp_server_start() {
 # stop postgresql server after done setting up user and running scripts
 docker_temp_server_stop() {
 	PGUSER="${PGUSER:-postgres}" \
-	/var/local/ivorysql/ivorysql-3/bin/pg_ctl -D "$PGDATA" -m fast -w stop
+	pg_ctl -D "$PGDATA" -m fast -w stop
 }
 
 # check arguments for an option that would cause postgres to stop
@@ -347,8 +347,8 @@ _main() {
 			EOM
 		fi
 	fi
-	sed -ri "s!^#?(listen_addresses)\s*=\s*\S+.*!\1 = '*'!" /var/local/ivorysql/ivorysql-3/data/postgresql.conf
-	exec "/var/local/ivorysql/ivorysql-3/bin/$@"
+	sed -ri "s!^#?(listen_addresses)\s*=\s*\S+.*!\1 = '*'!" $PGDATA/postgresql.conf
+	exec "$@"
 }
 
 if ! _is_sourced; then
